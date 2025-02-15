@@ -22,6 +22,12 @@ def angleCalc(shoulder, elbow, wrist):      # method to calculate angle
 
     cosine_angle = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
     angle = np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
+
+    """
+    if wrist[1] > elbow[1]:       # makes sure wrist going above elbow means the angle is getting smaller
+        angle = 180 - angle
+        print(wrist[1], elbow[1])
+    """
     
     return angle
 
@@ -45,10 +51,10 @@ with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as 
 
             mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-            # Get landmarks for left arm
-            shoulder = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
-            elbow = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_ELBOW]
-            wrist = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
+            # left arm
+            shoulder = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+            elbow = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
+            wrist = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
 
             # calculating elbow angle
             angle = angleCalc(shoulder, elbow, wrist)
@@ -64,19 +70,19 @@ with mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5) as 
                     else:
                         feedback = "Good rep"
                     curling = False  # reset state
+                    max_reach = 0
             
-            elif angle < 50:    # curled
+            elif angle <= 80:    # curled
                 if not curling:
                     previous_time = time.time()  # starting the timing
                     curling = True
 
-            elif angle < 160 and angle > 100:   # in between
-                if curling == True:
-                    if angle > max_reach:   #if max reach is less than 160, then we'll throw out the didn't extend all the way message
-                        max_reach = angle
-                    if max_reach < 160:
-                        feedback = "Did not extend all the way"
-                        curling = False
+            elif 100 < angle < 160:   # in between
+                if curling and angle > max_reach:   #if max reach is less than 160, then we'll throw out the didn't extend all the way message
+                     max_reach = angle
+                if max_reach < 160 and curling == True:
+                    feedback = "Did not extend all the way"
+                    curling = False
 
             # displaying both angle and feedback on screen
             cv2.putText(frame, f"Elbow Angle: {int(angle)}", (50, 50), 
