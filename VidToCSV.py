@@ -1,8 +1,6 @@
 import os
-import glob
 import cv2
 import mediapipe as mp
-import numpy as np
 import csv
 
 filepath = "C:/Users/HP/Pictures/Camera Roll/Poses/"
@@ -69,35 +67,29 @@ for i in os.listdir(filepath):
                         if not ret:
                             break
 
-                        # frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
 
                         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         results = pose.process(rgb_frame)
 
-                        if results.pose_landmarks:
-                            # if num == 0:
-                            #     vec1len = imagelengthcap("RIGHT_WRIST","RIGHT_ELBOW")
-                            #     print(vec1len)
-                            #     vec2len = imagelengthcap("RIGHT_ELBOW", "RIGHT_SHOULDER")
-                            #     print(vec2len)
-                            #     num = 1
 
-                            mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-                            rhi = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
-                            rsh = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                        mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
-                            rEL = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
-                            h, w, _ = frame.shape
-                            rWR = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
+                        rhi = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
+                        rsh = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
 
-                            lsh = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
-                            lEL = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_ELBOW]
-                            lWR = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
-                            lhi = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_HIP]
-                            framecount = framecount + 1
+                        rEL = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
+                        h, w, _ = frame.shape
+                        rWR = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
 
-                            writer.writerow({"frame" : framecount,"R_HIPx": rhi.x-rhi.x, "R_HIPy": rhi.y-rhi.y, "R_HIPz": rhi.z-rhi.z, "R_SHOULDERx": rsh.x-rhi.x,
+                        lsh = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
+                        lEL = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_ELBOW]
+                        lWR = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_WRIST]
+                        lhi = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_HIP]
+                        framecount = framecount + 1
+
+                        writer.writerow({"frame" : framecount,"R_HIPx": rhi.x-rhi.x, "R_HIPy": rhi.y-rhi.y, "R_HIPz": rhi.z-rhi.z, "R_SHOULDERx": rsh.x-rhi.x,
                                              "R_SHOULDERy": rsh.y- rhi.y,
                                              "R_SHOULDERz": rsh.z - rhi.z,
                                              "R_ELBOWx": rEL.x - rhi.x,
@@ -128,7 +120,3 @@ for i in os.listdir(filepath):
             cv2.destroyAllWindows()
 
 
-#path=glob.glob(filepath + "/**/*.mp4")
-#subdir = os.path.basename(os.path.dirname(path))
-#print(subdir)
-#print(my_files)
