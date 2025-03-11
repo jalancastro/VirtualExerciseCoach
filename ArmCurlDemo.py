@@ -40,6 +40,7 @@ def is_body_in_frame(landmarks):
         mp_pose.PoseLandmark.LEFT_ELBOW
     ]
     return all(landmarks[l].visibility > 0.7 for l in required_landmarks)  # Only if visible for 0.7+
+POSE_CONNECTIONS = frozenset([(12,14),(14,16),(11,13),(13,15)])
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -48,22 +49,45 @@ while cap.isOpened():
 
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = pose.process(frame_rgb)
+    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
     h, w, _ = frame.shape
     detector = 0
     if results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
-
+        for landmark in results.pose_landmarks.landmark:
+            landmark.visibility = 0
         # in frame detection
         body_in_frame = is_body_in_frame(landmarks)
 
         right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
         right_elbow = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW]
         right_wrist = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
-
         left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         left_elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
         left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+
+        #Draw landmarkpoints
+        mp_drawing.draw_landmarks(frame, results.pose_landmarks, POSE_CONNECTIONS)
+        cv2.circle(frame, (int(right_shoulder.x * w), int(right_shoulder.y * h)), 1, (0, 255, 0), 20)
+        cv2.circle(frame, (int(right_elbow.x * w), int(right_elbow.y * h)), 1, (0, 255, 0), 20)
+        cv2.circle(frame, (int(right_wrist.x * w), int(right_wrist.y * h)), 1, (0, 255, 0), 20)
+        cv2.circle(frame, (int(left_shoulder.x * w), int(left_shoulder.y * h)), 1, (0, 255, 0), 20)
+        cv2.circle(frame, (int(left_elbow.x * w), int(left_elbow.y * h)), 1, (0, 255, 0), 20)
+        cv2.circle(frame, (int(left_wrist.x * w), int(left_wrist.y * h)), 1, (0, 255, 0), 20)
+
+        cv2.line(frame,(int(right_shoulder.x * w), int(right_shoulder.y * h)),(int(right_elbow.x * w), int(right_elbow.y * h)),(255, 255, 255),2)
+
+        cv2.line(frame, (int(right_elbow.x * w), int(right_elbow.y * h)),
+(int(right_wrist.x * w), int(right_wrist.y * h)), (255, 255, 255), 2)
+
+        cv2.line(frame, (int(left_shoulder.x * w), int(left_shoulder.y * h)),
+                 (int(left_elbow.x * w), int(left_elbow.y * h)), (255, 255, 255), 2)
+
+        cv2.line(frame, (int(left_elbow.x * w), int(left_elbow.y * h)),
+                 (int(left_wrist.x * w), int(left_wrist.y * h)), (255, 255, 255), 2)
+
+
         if left_wrist.visibility > 0.5 and right_wrist.visibility > 0.5:
             # landmarks to pixel coordinates
             def to_pixel_coords(landmark):
@@ -119,6 +143,15 @@ while cap.isOpened():
                 feedback_text = "Left elbow swinging too much!"
                 feedback_timer = time.time()
                 detector = 1
+            if feedback_text and (time.time() - feedback_timer < 2):
+                cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+            else:
+                feedback_text = ""
+            if detector == 1:
+                for i in range(2):
+                    out.write(frame)
+            else:
+                out.write(frame)
         else:
             cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX,
                         1, (0, 255, 255), 2)
@@ -138,15 +171,7 @@ while cap.isOpened():
     #     cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
     # show feedback for at least 2 seconds
-    if feedback_text and (time.time() - feedback_timer < 2):
-        cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-    else:
-        feedback_text = ""
-    if detector == 1:
-        for i in range(2):
-            out.write(frame)
-    else:
-        out.write(frame)
+
     cv2.imshow("Arm Curl Tracker", frame)
 
     # exit with 'q'
