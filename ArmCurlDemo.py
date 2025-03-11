@@ -15,6 +15,8 @@ right_stage = None  # down or up
 left_stage = None   # down or up
 feedback_timer = 0
 feedback_text = ""
+detector = 0
+
 
 # adjustable elbow swing threshold
 ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
@@ -48,7 +50,7 @@ while cap.isOpened():
     results = pose.process(frame_rgb)
 
     h, w, _ = frame.shape
-
+    detector = 0
     if results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
 
@@ -62,77 +64,89 @@ while cap.isOpened():
         left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         left_elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
         left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+        if left_wrist.visibility > 0.5 and right_wrist.visibility > 0.5:
+            # landmarks to pixel coordinates
+            def to_pixel_coords(landmark):
+                return int(landmark.x * w), int(landmark.y * h)
 
-        # landmarks to pixel coordinates
-        def to_pixel_coords(landmark):
-            return int(landmark.x * w), int(landmark.y * h)
+            r_shoulder, r_elbow, r_wrist = map(to_pixel_coords, [right_shoulder, right_elbow, right_wrist])
+            l_shoulder, l_elbow, l_wrist = map(to_pixel_coords, [left_shoulder, left_elbow, left_wrist])
 
-        r_shoulder, r_elbow, r_wrist = map(to_pixel_coords, [right_shoulder, right_elbow, right_wrist])
-        l_shoulder, l_elbow, l_wrist = map(to_pixel_coords, [left_shoulder, left_elbow, left_wrist])
+            # angle calculation
+            def calculate_angle(a, b, c):
+                a = np.array(a)
+                b = np.array(b)
+                c = np.array(c)
 
-        # angle calculation
-        def calculate_angle(a, b, c):
-            a = np.array(a)
-            b = np.array(b)
-            c = np.array(c)
+                ab = a - b
+                bc = c - b
 
-            ab = a - b
-            bc = c - b
+                cosine_angle = np.dot(ab, bc) / (np.linalg.norm(ab) * np.linalg.norm(bc))
+                angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+                return np.degrees(angle)
 
-            cosine_angle = np.dot(ab, bc) / (np.linalg.norm(ab) * np.linalg.norm(bc))
-            angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
-            return np.degrees(angle)
+            right_angle = calculate_angle(r_shoulder, r_elbow, r_wrist)
+            left_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
 
-        right_angle = calculate_angle(r_shoulder, r_elbow, r_wrist)
-        left_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
+            # elbow swing detection with adjusted threshold
+            right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
+            left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
 
-        # elbow swing detection with adjusted threshold
-        right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
-        left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
+            # right arm rep counting
+            if right_angle > 150:
+                right_stage = "down"
+            elif right_angle < 50 and right_stage == "down":
+                right_stage = "up"
+                right_reps += 1
+                feedback_text = "Good rep - Right arm"
+                feedback_timer = time.time()
 
-        # right arm rep counting
-        if right_angle > 150:
-            right_stage = "down"
-        elif right_angle < 50 and right_stage == "down":
-            right_stage = "up"
-            right_reps += 1
-            feedback_text = "Good rep - Right arm"
-            feedback_timer = time.time()
+            # left arm rep counting
+            if left_angle > 150:
+                left_stage = "down"
+            elif left_angle < 50 and left_stage == "down":
+                left_stage = "up"
+                left_reps += 1
+                feedback_text = "Good rep - Left arm"
+                feedback_timer = time.time()
 
-        # left arm rep counting
-        if left_angle > 150:
-            left_stage = "down"
-        elif left_angle < 50 and left_stage == "down":
-            left_stage = "up"
-            left_reps += 1
-            feedback_text = "Good rep - Left arm"
-            feedback_timer = time.time()
-
-        # IF arm swing AND body is in frame
-        if right_elbow_swing and body_in_frame:
-            feedback_text = "Right elbow swinging too much!"
-            feedback_timer = time.time()
-        if left_elbow_swing and body_in_frame:
-            feedback_text = "Left elbow swinging too much!"
-            feedback_timer = time.time()
+            # IF arm swing AND body is in frame
+            if right_elbow_swing and body_in_frame:
+                feedback_text = "Right elbow swinging too much!"
+                feedback_timer = time.time()
+                detector = 1
+            if left_elbow_swing and body_in_frame:
+                feedback_text = "Left elbow swinging too much!"
+                feedback_timer = time.time()
+                detector = 1
+        else:
+            cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 255, 255), 2)
 
     # saving the video frame
-    out.write(frame)
+
+    else:
+        cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
     # rep count display text
     cv2.putText(frame, f"Right Reps: {right_reps}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.putText(frame, f"Left Reps: {left_reps}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
+
     # display "Will start recording once full body is in frame" during recording phase ONLY
-    if not body_in_frame:
-        cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+    # if not body_in_frame:
+    #     cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
     # show feedback for at least 2 seconds
     if feedback_text and (time.time() - feedback_timer < 2):
         cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
     else:
         feedback_text = ""
-
+    if detector == 1:
+        for i in range(2):
+            out.write(frame)
+    else:
+        out.write(frame)
     cv2.imshow("Arm Curl Tracker", frame)
 
     # exit with 'q'
@@ -146,7 +160,6 @@ cv2.destroyAllWindows()
 ################
 # PLAYBACK PHASE #
 #################
-
 # open recently saved video
 cap = cv2.VideoCapture("exercise_recording.avi")
 
@@ -160,7 +173,7 @@ while cap.isOpened():
 
     h, w, _ = frame.shape
 
-    if results.pose_landmarks:
+    if 1==0 :#results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
 
         # body in frame
