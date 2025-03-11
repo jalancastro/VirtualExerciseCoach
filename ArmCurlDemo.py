@@ -49,14 +49,13 @@ while cap.isOpened():
 
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = pose.process(frame_rgb)
-    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
 
     h, w, _ = frame.shape
     detector = 0
     if results.pose_landmarks:
         landmarks = results.pose_landmarks.landmark
-        for landmark in results.pose_landmarks.landmark:
-            landmark.visibility = 0
+
         # in frame detection
         body_in_frame = is_body_in_frame(landmarks)
 
@@ -66,6 +65,10 @@ while cap.isOpened():
         left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         left_elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
         left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+
+        for landmark in results.pose_landmarks.landmark:
+            if landmark != right_shoulder and landmark != right_elbow and landmark != right_wrist and landmark != left_shoulder and landmark != left_elbow and landmark != left_wrist:
+                landmark.visibility = 0
 
         #Draw landmarkpoints
         mp_drawing.draw_landmarks(frame, results.pose_landmarks, POSE_CONNECTIONS)
@@ -79,7 +82,7 @@ while cap.isOpened():
         cv2.line(frame,(int(right_shoulder.x * w), int(right_shoulder.y * h)),(int(right_elbow.x * w), int(right_elbow.y * h)),(255, 255, 255),2)
 
         cv2.line(frame, (int(right_elbow.x * w), int(right_elbow.y * h)),
-(int(right_wrist.x * w), int(right_wrist.y * h)), (255, 255, 255), 2)
+                    (int(right_wrist.x * w), int(right_wrist.y * h)), (255, 255, 255), 2)
 
         cv2.line(frame, (int(left_shoulder.x * w), int(left_shoulder.y * h)),
                  (int(left_elbow.x * w), int(left_elbow.y * h)), (255, 255, 255), 2)
