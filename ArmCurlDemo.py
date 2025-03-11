@@ -1,0 +1,213 @@
+import cv2
+import mediapipe as mp
+import numpy as np
+import time
+
+# mediapipe pose initialization
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose()
+mp_drawing = mp.solutions.drawing_utils
+
+# rep counting
+right_reps = 0
+left_reps = 0
+right_stage = None  # down or up
+left_stage = None   # down or up
+feedback_timer = 0
+feedback_text = ""
+
+# adjustable elbow swing threshold
+ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
+
+# video cap and writing
+cap = cv2.VideoCapture(0)
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+out = cv2.VideoWriter("exercise_recording.avi", cv2.VideoWriter_fourcc(*'XVID'), 30.0, (frame_width, frame_height))
+
+# to make sure we don't incorrectly throw errors or start counting too soon, need this to capture if body is
+# in frame
+def is_body_in_frame(landmarks):
+    required_landmarks = [
+        mp_pose.PoseLandmark.RIGHT_SHOULDER,
+        mp_pose.PoseLandmark.LEFT_SHOULDER,
+        mp_pose.PoseLandmark.RIGHT_HIP,
+        mp_pose.PoseLandmark.LEFT_HIP,
+        mp_pose.PoseLandmark.RIGHT_ELBOW,
+        mp_pose.PoseLandmark.LEFT_ELBOW
+    ]
+    return all(landmarks[l].visibility > 0.7 for l in required_landmarks)  # Only if visible for 0.7+
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = pose.process(frame_rgb)
+
+    h, w, _ = frame.shape
+
+    if results.pose_landmarks:
+        landmarks = results.pose_landmarks.landmark
+
+        # in frame detection
+        body_in_frame = is_body_in_frame(landmarks)
+
+        right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        right_elbow = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW]
+        right_wrist = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
+
+        left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
+        left_elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
+        left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+
+        # landmarks to pixel coordinates
+        def to_pixel_coords(landmark):
+            return int(landmark.x * w), int(landmark.y * h)
+
+        r_shoulder, r_elbow, r_wrist = map(to_pixel_coords, [right_shoulder, right_elbow, right_wrist])
+        l_shoulder, l_elbow, l_wrist = map(to_pixel_coords, [left_shoulder, left_elbow, left_wrist])
+
+        # angle calculation
+        def calculate_angle(a, b, c):
+            a = np.array(a)
+            b = np.array(b)
+            c = np.array(c)
+
+            ab = a - b
+            bc = c - b
+
+            cosine_angle = np.dot(ab, bc) / (np.linalg.norm(ab) * np.linalg.norm(bc))
+            angle = np.arccos(np.clip(cosine_angle, -1.0, 1.0))
+            return np.degrees(angle)
+
+        right_angle = calculate_angle(r_shoulder, r_elbow, r_wrist)
+        left_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
+
+        # elbow swing detection with adjusted threshold
+        right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
+        left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
+
+        # right arm rep counting
+        if right_angle > 150:
+            right_stage = "down"
+        elif right_angle < 50 and right_stage == "down":
+            right_stage = "up"
+            right_reps += 1
+            feedback_text = "Good rep - Right arm"
+            feedback_timer = time.time()
+
+        # left arm rep counting
+        if left_angle > 150:
+            left_stage = "down"
+        elif left_angle < 50 and left_stage == "down":
+            left_stage = "up"
+            left_reps += 1
+            feedback_text = "Good rep - Left arm"
+            feedback_timer = time.time()
+
+        # IF arm swing AND body is in frame
+        if right_elbow_swing and body_in_frame:
+            feedback_text = "Right elbow swinging too much!"
+            feedback_timer = time.time()
+        if left_elbow_swing and body_in_frame:
+            feedback_text = "Left elbow swinging too much!"
+            feedback_timer = time.time()
+
+    # saving the video frame
+    out.write(frame)
+
+    # rep count display text
+    cv2.putText(frame, f"Right Reps: {right_reps}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(frame, f"Left Reps: {left_reps}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+    # display "Will start recording once full body is in frame" during recording phase ONLY
+    if not body_in_frame:
+        cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    # show feedback for at least 2 seconds
+    if feedback_text and (time.time() - feedback_timer < 2):
+        cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+    else:
+        feedback_text = ""
+
+    cv2.imshow("Arm Curl Tracker", frame)
+
+    # exit with 'q'
+    if cv2.waitKey(10) & 0xFF == ord("q"):
+        break
+
+cap.release()
+out.release()
+cv2.destroyAllWindows()
+
+################
+# PLAYBACK PHASE #
+#################
+
+# open recently saved video
+cap = cv2.VideoCapture("exercise_recording.avi")
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = pose.process(frame_rgb)
+
+    h, w, _ = frame.shape
+
+    if results.pose_landmarks:
+        landmarks = results.pose_landmarks.landmark
+
+        # body in frame
+        body_in_frame = is_body_in_frame(landmarks)
+
+        right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+        right_elbow = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW]
+        right_wrist = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
+
+        left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
+        left_elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
+        left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+
+        # landmarks to pixels
+        def to_pixel_coords(landmark):
+            return int(landmark.x * w), int(landmark.y * h)
+
+        r_shoulder, r_elbow, r_wrist = map(to_pixel_coords, [right_shoulder, right_elbow, right_wrist])
+        l_shoulder, l_elbow, l_wrist = map(to_pixel_coords, [left_shoulder, left_elbow, left_wrist])
+
+        # angle calcs
+        right_angle = calculate_angle(r_shoulder, r_elbow, r_wrist)
+        left_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
+
+        # ELBOW SWING ERROR
+        right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
+        left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
+
+        # detecting elbow swing during playback
+        if right_elbow_swing and body_in_frame:
+            feedback_text = "Right elbow swinging too much!"
+            feedback_timer = time.time()
+
+        if left_elbow_swing and body_in_frame:
+            feedback_text = "Left elbow swinging too much!"
+            feedback_timer = time.time()
+
+    # making sure the feedback doesnt disappear right away
+    if feedback_text and (time.time() - feedback_timer < 2):
+        cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+    # showing frame
+    cv2.imshow("Arm Curl Tracker (Playback)", frame)
+
+    # exit with 'q'
+    if cv2.waitKey(10) & 0xFF == ord("q"):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
