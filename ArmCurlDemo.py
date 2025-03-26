@@ -44,6 +44,35 @@ def is_body_in_frame(landmarks):
     return all(landmarks[l].visibility > 0.7 for l in required_landmarks)  # Only if visible for 0.7+
 POSE_CONNECTIONS = frozenset([(12,14),(14,16),(11,13),(13,15)])
 
+# partial rep flag
+right_partial_rep_flag = False
+left_partial_rep_flag = False
+# sets the partial rep flags if a certain angle was reached during contraction
+# if a rep was completed successfully by setting the stage to "up", it clears the flag
+def set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage):
+    global right_partial_rep_flag, left_partial_rep_flag
+    if right_angle < 160:
+        right_partial_rep_flag = True
+    if left_angle < 160:
+        left_partial_rep_flag = True
+    if right_stage == "up":
+        right_partial_rep_flag = False
+    if left_stage == "up":
+        left_partial_rep_flag = False    
+# uses flags to determine if an angle of 160 or less was reached, but 50 degrees wasn't reached(full rep). 
+# If so, when the rep is completed and the arm extended beyond 170 degrees, it sets the feedback text.
+def set_partial_rep_feedback(right_angle, left_angle):
+    global right_partial_rep_flag, left_partial_rep_flag, feedback_text, feedback_timer
+    if right_angle > 170 and right_partial_rep_flag:
+        right_partial_rep_flag = False
+        feedback_text = "Partial rep - Right arm"
+        feedback_timer = time.time()
+    if left_angle > 170 and left_partial_rep_flag:
+        print("left_partial_rep_flag: ", left_partial_rep_flag)
+        left_partial_rep_flag = False
+        feedback_text = "Partial rep - Left arm"
+        feedback_timer = time.time()
+
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -133,6 +162,8 @@ while cap.isOpened():
             left_shoulder_swing = (l_shoulder[1] - r_shoulder[1]) > SHOULDER_SWING_THRESHOLD
             right_shoulder_swing = (r_shoulder[1] - l_shoulder[1]) > SHOULDER_SWING_THRESHOLD
 
+            set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage)
+
             # right arm rep counting
             if right_angle > 150:
                 right_stage = "down"
@@ -150,6 +181,8 @@ while cap.isOpened():
                 left_reps += 1
                 feedback_text = "Good rep - Left arm"
                 feedback_timer = time.time()
+
+            set_partial_rep_feedback(right_angle, left_angle)
 
             # IF arm swing AND body is in frame
             if right_elbow_swing and body_in_frame:
@@ -170,7 +203,7 @@ while cap.isOpened():
                 feedback_text = "You are swinging your left shoulder, don't use momentum!"
                 feedback_timer = time.time()
                 detector = 1
-             if right_hip_higher and body_in_frame:
+            if right_hip_higher and body_in_frame:
                 feedback_text = "right hip to far out"
                 feedback_timer = time.time()
                 detector = 1
