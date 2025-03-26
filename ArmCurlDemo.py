@@ -21,7 +21,7 @@ detector = 0
 # adjustable elbow swing threshold
 ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
 SHOULDER_SWING_THRESHOLD = 50
-
+HIP_RANGE_THRESHOLD = 10
 
 # video cap and writing
 cap = cv2.VideoCapture(0)
@@ -123,6 +123,12 @@ while cap.isOpened():
             right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
             left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
 
+             # hip out of range detection
+            r_shoulder, r_hip, l_hip,l_shoulder = map(to_pixel_coords, [right_shoulder, right_hip, left_hip,left_shoulder])
+
+            right_hip_higher = (r_hip[1] - l_hip[1]) > HIP_RANGE_THRESHOLD
+            left_hip_higher = (l_hip[1] - r_hip[1]) > HIP_RANGE_THRESHOLD
+
             # shoulder swing detection with threshold
             left_shoulder_swing = (l_shoulder[1] - r_shoulder[1]) > SHOULDER_SWING_THRESHOLD
             right_shoulder_swing = (r_shoulder[1] - l_shoulder[1]) > SHOULDER_SWING_THRESHOLD
@@ -162,6 +168,14 @@ while cap.isOpened():
                 detector = 1
             if left_shoulder_swing and body_in_frame:
                 feedback_text = "You are swinging your left shoulder, don't use momentum!"
+                feedback_timer = time.time()
+                detector = 1
+             if right_hip_higher and body_in_frame:
+                feedback_text = "right hip to far out"
+                feedback_timer = time.time()
+                detector = 1
+            if left_hip_higher and body_in_frame:
+                feedback_text = "left hip to far out"
                 feedback_timer = time.time()
                 detector = 1
 
