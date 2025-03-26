@@ -20,6 +20,8 @@ detector = 0
 
 # adjustable elbow swing threshold
 ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
+SHOULDER_SWING_THRESHOLD = 50
+
 
 # video cap and writing
 cap = cv2.VideoCapture(0)
@@ -62,9 +64,11 @@ while cap.isOpened():
         right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
         right_elbow = landmarks[mp_pose.PoseLandmark.RIGHT_ELBOW]
         right_wrist = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
+        right_hip = landmarks[mp_pose.PoseLandmark.RIGHT_HIP]
         left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
         left_elbow = landmarks[mp_pose.PoseLandmark.LEFT_ELBOW]
         left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+        left_hip = landmarks[mp_pose.PoseLandmark.LEFT_HIP]
 
         for landmark in results.pose_landmarks.landmark:
             if landmark != right_shoulder and landmark != right_elbow and landmark != right_wrist and landmark != left_shoulder and landmark != left_elbow and landmark != left_wrist:
@@ -119,6 +123,10 @@ while cap.isOpened():
             right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
             left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
 
+            # shoulder swing detection with threshold
+            left_shoulder_swing = (l_shoulder[1] - r_shoulder[1]) > SHOULDER_SWING_THRESHOLD
+            right_shoulder_swing = (r_shoulder[1] - l_shoulder[1]) > SHOULDER_SWING_THRESHOLD
+
             # right arm rep counting
             if right_angle > 150:
                 right_stage = "down"
@@ -146,6 +154,17 @@ while cap.isOpened():
                 feedback_text = "Left elbow swinging too much!"
                 feedback_timer = time.time()
                 detector = 1
+
+            # IF shoulder swing AND body is in frame
+            if right_shoulder_swing and body_in_frame:
+                feedback_text = "You are swinging your right shoulder, don't use momentum!"
+                feedback_timer = time.time()
+                detector = 1
+            if left_shoulder_swing and body_in_frame:
+                feedback_text = "You are swinging your left shoulder, don't use momentum!"
+                feedback_timer = time.time()
+                detector = 1
+
             if feedback_text and (time.time() - feedback_timer < 2):
                 cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
             else:
@@ -230,6 +249,10 @@ while cap.isOpened():
         right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
         left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
 
+        # SHOULDER SWING ERROR
+        right_shoulder_swing = (l_shoulder[1] - r_shoulder[1]) > SHOULDER_SWING_THRESHOLD
+        left_shoulder_swing = (r_shoulder[1] - l_shoulder[1]) > SHOULDER_SWING_THRESHOLD
+
         # detecting elbow swing during playback
         if right_elbow_swing and body_in_frame:
             feedback_text = "Right elbow swinging too much!"
@@ -238,6 +261,16 @@ while cap.isOpened():
         if left_elbow_swing and body_in_frame:
             feedback_text = "Left elbow swinging too much!"
             feedback_timer = time.time()
+
+        # IF shoulder swing AND body is in frame
+        if right_shoulder_swing and body_in_frame:
+            feedback_text = "You are swinging your right shoulder, don't use momentum!"
+            feedback_timer = time.time()
+            detector = 1
+        if left_shoulder_swing and body_in_frame:
+            feedback_text = "You are swinging your left shoulder, don't use momentum!"
+            feedback_timer = time.time()
+            detector = 1
 
     # making sure the feedback doesnt disappear right away
     if feedback_text and (time.time() - feedback_timer < 2):
