@@ -251,9 +251,9 @@ cap.release()
 out.release()
 cv2.destroyAllWindows()
 
-################
+##################
 # PLAYBACK PHASE #
-#################
+##################
 # open recently saved video
 cap = cv2.VideoCapture("exercise_recording.avi")
 
