@@ -8,7 +8,7 @@ mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
 mp_drawing = mp.solutions.drawing_utils
 
-# rep counting
+# rep counting variables
 right_reps = 0
 left_reps = 0
 right_stage = None  # down or up
@@ -242,7 +242,7 @@ while cap.isOpened():
             # set partial rep flag on the way up
             set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage)
 
-            # right arm rep counting                
+            # rep counting for both arms                
             rep_counter(right_angle, left_angle)            
                 
             # if treshold angle wasn't reached, set partial rep feedback
