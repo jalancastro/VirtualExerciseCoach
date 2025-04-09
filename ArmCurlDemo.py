@@ -1,14 +1,18 @@
+from operator import truediv
+
 import cv2
 import mediapipe as mp
 import numpy as np
 import time
-
+import threading as tr
+import concurrent.futures as cf
+from concurrent.futures import ThreadPoolExecutor as TPE
 # mediapipe pose initialization
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
 mp_drawing = mp.solutions.drawing_utils
 
-# rep counting
+# rep counting variables
 right_reps = 0
 left_reps = 0
 right_stage = None  # down or up
@@ -16,12 +20,22 @@ left_stage = None   # down or up
 feedback_timer = 0
 feedback_text = ""
 detector = 0
+Switch = 0
+quit = False
+Ping = 0
 
 
 # adjustable elbow swing threshold
 ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
 SHOULDER_SWING_THRESHOLD = 50
-HIP_RANGE_THRESHOLD = 10
+HIP_RANGE_THRESHOLD = 15
+
+# adjustable partial rep treshold
+REP_ATTEMPT_TRESHOLD = 160
+REP_COMPLETION_TRESHOLD = 170
+# partial rep flag
+right_partial_rep_flag = False
+left_partial_rep_flag = False
 
 # video cap and writing
 cap = cv2.VideoCapture(0)
@@ -44,16 +58,44 @@ def is_body_in_frame(landmarks):
     return all(landmarks[l].visibility > 0.7 for l in required_landmarks)  # Only if visible for 0.7+
 POSE_CONNECTIONS = frozenset([(12,14),(14,16),(11,13),(13,15)])
 
-# partial rep flag
-right_partial_rep_flag = False
-left_partial_rep_flag = False
+def set_feedback_text(feedback):
+    global feedback_text
+    if feedback_text != "" and feedback != "":
+        feedback_text += "\n"
+    feedback_text += feedback
+
+# rep counting function. counts reps and sets stages
+def rep_counter(right_angle, left_angle):
+    global feedback_timer, feedback_text, right_reps, right_stage, left_reps, left_stage
+    if right_angle > 150:
+        right_stage = "down"
+    elif right_angle < 50 and right_stage == "down":
+        right_stage = "up"
+        right_reps += 1
+        global Ping
+        Ping = 1
+        #set_feedback_text("Good rep - Right arm")
+        feedback_text = "Good rep - Right arm"
+        feedback_timer = time.time()
+
+    # left arm rep counting
+    if left_angle > 150:
+       left_stage = "down"
+    elif left_angle < 50 and left_stage == "down":
+        left_stage = "up"
+        left_reps += 1
+        Ping = 1
+        #set_feedback_text("Good rep - Left arm")
+        feedback_text = "Good rep - Left arm"
+        feedback_timer = time.time()    
+
 # sets the partial rep flags if a certain angle was reached during contraction
 # if a rep was completed successfully by setting the stage to "up", it clears the flag
 def set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage):
     global right_partial_rep_flag, left_partial_rep_flag
-    if right_angle < 160:
+    if right_angle < REP_ATTEMPT_TRESHOLD:
         right_partial_rep_flag = True
-    if left_angle < 160:
+    if left_angle < REP_ATTEMPT_TRESHOLD:
         left_partial_rep_flag = True
     if right_stage == "up":
         right_partial_rep_flag = False
@@ -63,16 +105,73 @@ def set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage):
 # If so, when the rep is completed and the arm extended beyond 170 degrees, it sets the feedback text.
 def set_partial_rep_feedback(right_angle, left_angle):
     global right_partial_rep_flag, left_partial_rep_flag, feedback_text, feedback_timer
-    if right_angle > 170 and right_partial_rep_flag:
+    if right_angle > REP_COMPLETION_TRESHOLD and right_partial_rep_flag:
         right_partial_rep_flag = False
+        #set_feedback_text("Partial rep - Right arm")
         feedback_text = "Partial rep - Right arm"
         feedback_timer = time.time()
-    if left_angle > 170 and left_partial_rep_flag:
+    if left_angle > REP_COMPLETION_TRESHOLD and left_partial_rep_flag:
         print("left_partial_rep_flag: ", left_partial_rep_flag)
         left_partial_rep_flag = False
+        #set_feedback_text("Partial rep - Left arm")
         feedback_text = "Partial rep - Left arm"
         feedback_timer = time.time()
 
+# function to detect elbow swings depending on wrist and elbow positions
+def set_elbow_swing_feedback(right_arm_position, left_arm_position, body_in_frame):
+    global ELBOW_SWING_THRESHOLD, feedback_text, feedback_timer, detector    
+    # elbow swing detection with adjusted threshold
+    right_elbow_swing = right_arm_position > ELBOW_SWING_THRESHOLD
+    left_elbow_swing = left_arm_position > ELBOW_SWING_THRESHOLD
+    
+    if right_elbow_swing and body_in_frame:
+        #set_feedback_text("Right elbow swinging too much!")
+        feedback_text = "Right elbow swinging too much!"
+        feedback_timer = time.time()
+        detector = 1
+    if left_elbow_swing and body_in_frame:
+        #set_feedback_text("Left elbow swinging too much!")
+        feedback_text = "Left elbow swinging too much!"
+        feedback_timer = time.time()
+        detector = 1
+        
+# function to detect shoulder swings depending on shoulder positions
+def set_shoulder_swing_feedback(right_shoulder_position, left_shoulder_position, body_in_frame):
+    global ELBOW_SWING_THRESHOLD, feedback_text, feedback_timer, detector    
+    # shoulder swing detection with threshold
+    right_shoulder_swing = right_shoulder_position > SHOULDER_SWING_THRESHOLD
+    left_shoulder_swing = left_shoulder_position > SHOULDER_SWING_THRESHOLD
+    
+    if right_shoulder_swing and body_in_frame:
+        #set_feedback_text("You are swinging your right shoulder, don't use momentum!")
+        feedback_text = "You are swinging your right shoulder, don't use momentum!"
+        feedback_timer = time.time()
+        detector = 1
+    if left_shoulder_swing and body_in_frame:
+        #set_feedback_text("You are swinging your left shoulder, don't use momentum!")
+        feedback_text = "You are swinging your left shoulder, don't use momentum!"
+        feedback_timer = time.time()
+        detector = 1
+
+# function to detect hip position error depending on each hip
+def set_hip_position_feedback(right_hip_position, left_hip_position, body_in_frame):
+    global ELBOW_SWING_THRESHOLD, feedback_text, feedback_timer, detector    
+    # shoulder swing detection with threshold
+    right_hip_swing = right_hip_position > HIP_RANGE_THRESHOLD
+    left_hip_swing = left_hip_position > HIP_RANGE_THRESHOLD
+    
+    if right_hip_swing and body_in_frame:
+        #set_feedback_text("Right hip too far out")
+        feedback_text = "Right hip too far out"
+        feedback_timer = time.time()
+        detector = 1
+    if left_hip_swing and body_in_frame:
+        #set_feedback_text("Left hip too far out")
+        feedback_text = "Left hip too far out"
+        feedback_timer = time.time()
+        detector = 1
+
+start = time.time()
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -148,72 +247,29 @@ while cap.isOpened():
             right_angle = calculate_angle(r_shoulder, r_elbow, r_wrist)
             left_angle = calculate_angle(l_shoulder, l_elbow, l_wrist)
 
-            # elbow swing detection with adjusted threshold
-            right_elbow_swing = abs(r_wrist[0] - r_elbow[0]) > ELBOW_SWING_THRESHOLD
-            left_elbow_swing = abs(l_wrist[0] - l_elbow[0]) > ELBOW_SWING_THRESHOLD
-
              # hip out of range detection
-            r_shoulder, r_hip, l_hip,l_shoulder = map(to_pixel_coords, [right_shoulder, right_hip, left_hip,left_shoulder])
-
-            right_hip_higher = (r_hip[1] - l_hip[1]) > HIP_RANGE_THRESHOLD
-            left_hip_higher = (l_hip[1] - r_hip[1]) > HIP_RANGE_THRESHOLD
-
-            # shoulder swing detection with threshold
-            left_shoulder_swing = (l_shoulder[1] - r_shoulder[1]) > SHOULDER_SWING_THRESHOLD
-            right_shoulder_swing = (r_shoulder[1] - l_shoulder[1]) > SHOULDER_SWING_THRESHOLD
-
+            r_shoulder, r_hip, l_hip,l_shoulder = map(to_pixel_coords, [right_shoulder, right_hip, left_hip,left_shoulder])     
+            
+            # set partial rep flag on the way up
             set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage)
 
-            # right arm rep counting
-            if right_angle > 150:
-                right_stage = "down"
-            elif right_angle < 50 and right_stage == "down":
-                right_stage = "up"
-                right_reps += 1
-                feedback_text = "Good rep - Right arm"
-                feedback_timer = time.time()
-
-            # left arm rep counting
-            if left_angle > 150:
-                left_stage = "down"
-            elif left_angle < 50 and left_stage == "down":
-                left_stage = "up"
-                left_reps += 1
-                feedback_text = "Good rep - Left arm"
-                feedback_timer = time.time()
-
+            # rep counting for both arms                
+            rep_counter(right_angle, left_angle)            
+                
+            # if treshold angle wasn't reached, set partial rep feedback
             set_partial_rep_feedback(right_angle, left_angle)
 
             # IF arm swing AND body is in frame
-            if right_elbow_swing and body_in_frame:
-                feedback_text = "Right elbow swinging too much!"
-                feedback_timer = time.time()
-                detector = 1
-            if left_elbow_swing and body_in_frame:
-                feedback_text = "Left elbow swinging too much!"
-                feedback_timer = time.time()
-                detector = 1
+            set_elbow_swing_feedback(abs(r_wrist[0] - r_elbow[0]), abs(l_wrist[0] - l_elbow[0]), body_in_frame)            
 
             # IF shoulder swing AND body is in frame
-            if right_shoulder_swing and body_in_frame:
-                feedback_text = "You are swinging your right shoulder, don't use momentum!"
-                feedback_timer = time.time()
-                detector = 1
-            if left_shoulder_swing and body_in_frame:
-                feedback_text = "You are swinging your left shoulder, don't use momentum!"
-                feedback_timer = time.time()
-                detector = 1
-            if right_hip_higher and body_in_frame:
-                feedback_text = "right hip to far out"
-                feedback_timer = time.time()
-                detector = 1
-            if left_hip_higher and body_in_frame:
-                feedback_text = "left hip to far out"
-                feedback_timer = time.time()
-                detector = 1
+            set_shoulder_swing_feedback(r_shoulder[1] - l_shoulder[1], l_shoulder[1] - r_shoulder[1], body_in_frame)
+            
+            # IF hip swing AND body is in frame
+            set_hip_position_feedback(r_hip[1] - l_hip[1], l_hip[1] - r_hip[1], body_in_frame)
 
             if feedback_text and (time.time() - feedback_timer < 2):
-                cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
             else:
                 feedback_text = ""
             if detector == 1:
@@ -241,10 +297,22 @@ while cap.isOpened():
 
     # show feedback for at least 2 seconds
 
-    cv2.imshow("Arm Curl Tracker", frame)
+    winname = "workout"
+    cv2.namedWindow(winname)
+    cv2.moveWindow(winname, 40, 30)
+    cv2.imshow(winname, frame)
 
     # exit with 'q'
-    if cv2.waitKey(10) & 0xFF == ord("q"):
+    if Ping == 1:
+        start = time.time()
+        Ping = 0
+    else:
+        None
+
+    if time.time() - start >= 5:
+        quit = True
+
+    if cv2.waitKey(10) & 0xFF == ord("q") or quit == True:
         break
 
 cap.release()
