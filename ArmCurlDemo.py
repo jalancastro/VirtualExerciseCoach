@@ -23,6 +23,7 @@ detector = 0
 Switch = 0
 quit = False
 Ping = 0
+entered = 0
 
 
 # adjustable elbow swing threshold
@@ -173,6 +174,9 @@ def set_hip_position_feedback(right_hip_position, left_hip_position, body_in_fra
 
 start = time.time()
 while cap.isOpened():
+    if entered == 0:
+        start = time.time()
+        entered = 1
     ret, frame = cap.read()
     if not ret:
         break
@@ -285,12 +289,13 @@ while cap.isOpened():
         else:
             cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX,
                         1, (0, 255, 255), 2)
+            start= time.time()
 
     # saving the video frame
 
     else:
         cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-
+        start = time.time()
     # rep count display text
     cv2.putText(frame, f"Right Reps: {right_reps}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     cv2.putText(frame, f"Left Reps: {left_reps}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
