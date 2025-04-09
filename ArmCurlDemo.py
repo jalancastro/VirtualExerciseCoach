@@ -1,8 +1,12 @@
+from operator import truediv
+
 import cv2
 import mediapipe as mp
 import numpy as np
 import time
-
+import threading as tr
+import concurrent.futures as cf
+from concurrent.futures import ThreadPoolExecutor as TPE
 # mediapipe pose initialization
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
@@ -16,12 +20,15 @@ left_stage = None   # down or up
 feedback_timer = 0
 feedback_text = ""
 detector = 0
+Switch = 0
+quit = False
+Ping = 0
 
 
 # adjustable elbow swing threshold
 ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
 SHOULDER_SWING_THRESHOLD = 50
-HIP_RANGE_THRESHOLD = 10
+HIP_RANGE_THRESHOLD = 15
 
 # adjustable partial rep treshold
 REP_ATTEMPT_TRESHOLD = 160
@@ -65,6 +72,8 @@ def rep_counter(right_angle, left_angle):
     elif right_angle < 50 and right_stage == "down":
         right_stage = "up"
         right_reps += 1
+        global Ping
+        Ping = 1
         #set_feedback_text("Good rep - Right arm")
         feedback_text = "Good rep - Right arm"
         feedback_timer = time.time()
@@ -75,6 +84,7 @@ def rep_counter(right_angle, left_angle):
     elif left_angle < 50 and left_stage == "down":
         left_stage = "up"
         left_reps += 1
+        Ping = 1
         #set_feedback_text("Good rep - Left arm")
         feedback_text = "Good rep - Left arm"
         feedback_timer = time.time()    
@@ -161,6 +171,7 @@ def set_hip_position_feedback(right_hip_position, left_hip_position, body_in_fra
         feedback_timer = time.time()
         detector = 1
 
+start = time.time()
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -286,10 +297,22 @@ while cap.isOpened():
 
     # show feedback for at least 2 seconds
 
-    cv2.imshow("Arm Curl Tracker", frame)
+    winname = "workout"
+    cv2.namedWindow(winname)
+    cv2.moveWindow(winname, 40, 30)
+    cv2.imshow(winname, frame)
 
     # exit with 'q'
-    if cv2.waitKey(10) & 0xFF == ord("q"):
+    if Ping == 1:
+        start = time.time()
+        Ping = 0
+    else:
+        None
+
+    if time.time() - start >= 5:
+        quit = True
+
+    if cv2.waitKey(10) & 0xFF == ord("q") or quit == True:
         break
 
 cap.release()
