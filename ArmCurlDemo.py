@@ -224,6 +224,11 @@ while cap.isOpened():
 
 
         if left_wrist.visibility > 0.5 and right_wrist.visibility > 0.5:
+
+            if left_reps == 0 and right_reps == 0:
+                cv2.putText(frame, "Body in frame, ready to begin", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                feedback_text = ""
+                
             # landmarks to pixel coordinates
             def to_pixel_coords(landmark):
                 return int(landmark.x * w), int(landmark.y * h)
