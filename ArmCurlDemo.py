@@ -13,15 +13,20 @@ right_reps = 0
 left_reps = 0
 right_stage = None  # down or up
 left_stage = None   # down or up
-detector = 0
-Switch = 0
+detector = 0 # used during error playback?
+Switch = 0 # not used?
 quit = False
-Ping = 0
-entered = 0
+Ping = 0 # Each error message sets it to 1. When it is set to 1, the variable "start" is updated with the current time
+         # if "start" isnt updated in 5 seconds, the feedback recording stops
+entered = 0 # used during error playback?
 
 # feedback variables
 feedback_timer = 0
+right_completion_feedback_timer = 0 # keeps track of how long the latest rep completion message has been on screen
+left_completion_feedback_timer = 0
 feedback_text = ""
+right_completion_feedback_text = "" # used for good, partial, and bad reps, which have different time outs
+left_completion_feedback_text = ""
 right_feedback_text_list = []
 left_feedback_text_list = []
 elbow_swing = "Elbow swinging"
@@ -30,8 +35,6 @@ partial_rep = "Partial rep"
 good_rep = "Good rep completed"
 bad_rep = "Bad rep completed"
 hip_far_out = "Hip too far out"
-continuous_feedback = [elbow_swing, shoulder_swing, hip_far_out]
-event_feedback = [partial_rep, good_rep, bad_rep]
 
 # good rep flag
 right_good_rep = True
@@ -90,33 +93,62 @@ def set_feedback_text(side, feedback):
 
 # function that displays multiple messages on consecutive new lines
 def multi_message_display(frame):
-    global right_feedback_text_list, left_feedback_text_list, good_rep, bad_rep, partial_rep, feedback_timer
-    if (len(right_feedback_text_list) != 0 or len(left_feedback_text_list) != 0) and (time.time() - feedback_timer < 1):
-        right_y_text_coordinate = 210
-        left_y_text_coordinate = 210
+    global right_feedback_text_list, left_feedback_text_list, good_rep, bad_rep, partial_rep, feedback_timer, Ping, right_good_rep, left_good_rep
+    global right_completion_feedback_text, left_completion_feedback_text, right_completion_feedback_timer, left_completion_feedback_timer
+    
+    if (len(right_feedback_text_list) != 0 or len(left_feedback_text_list) != 0 or 
+        right_completion_feedback_text != "" or left_completion_feedback_text != "") and (time.time() - feedback_timer < 2):
         
-        cv2.putText(frame, "R feedback:", (50, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
-        cv2.putText(frame, "L feedback:", (300, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+        Ping = 1
+        right_y_text_event_coordinate = 210
+        left_y_text_event_coordinate = 210
         
+        if (time.time() - right_completion_feedback_timer > 1):
+            right_completion_feedback_text = ""
+        
+        if (time.time() - left_completion_feedback_timer > 1):
+            left_completion_feedback_text = ""
+            
         # If "Good rep completed" is in the feedback list, it is displayed exclusively
+        # If bad rep and partial reps are detected, bad rep feedback is prioritized
         if good_rep in right_feedback_text_list:
-            right_feedback_text_list = [good_rep]
-        if good_rep in left_feedback_text_list:
-            left_feedback_text_list = [good_rep]
-        
-        # If "Bad rep completed" is in the feedback list, "Partial rep" is removed from the list
-        # If "Bad rep completed" and "Partial rep" were the only two elements of the list, then "Bad rep completed" is now "Good rep completed"
+            right_completion_feedback_text = good_rep
+            right_completion_feedback_timer = time.time()
+            right_feedback_text_list = []
+        if partial_rep in right_feedback_text_list:
+            right_completion_feedback_text = partial_rep
+            right_completion_feedback_timer = time.time()
+            right_feedback_text_list.remove(partial_rep)
         if bad_rep in right_feedback_text_list:
-            if partial_rep in right_feedback_text_list:
-                right_feedback_text_list.remove(partial_rep)
-                if len(right_feedback_text_list) == 1:
-                    right_feedback_text_list = [good_rep]
-                    
+            print(right_feedback_text_list)
+            right_completion_feedback_text = bad_rep
+            right_completion_feedback_timer = time.time()
+            right_feedback_text_list.remove(bad_rep)    
+            
+        if good_rep in left_feedback_text_list:
+            left_completion_feedback_text = good_rep
+            left_completion_feedback_timer = time.time()
+            left_feedback_text_list = []
+        if partial_rep in left_feedback_text_list:
+            left_completion_feedback_text = partial_rep
+            left_completion_feedback_timer = time.time()
+            left_feedback_text_list.remove(partial_rep)
         if bad_rep in left_feedback_text_list:
-            if partial_rep in left_feedback_text_list:
-                left_feedback_text_list.remove(partial_rep)
-                if len(left_feedback_text_list) == 1:
-                    left_feedback_text_list = [good_rep]
+            left_completion_feedback_text = bad_rep
+            left_completion_feedback_timer = time.time()
+            left_feedback_text_list.remove(bad_rep)
+               
+        cv2.putText(frame, right_completion_feedback_text, (50, right_y_text_event_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+        cv2.putText(frame, left_completion_feedback_text, (300, left_y_text_event_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+            
+            
+    if (len(right_feedback_text_list) != 0 or len(left_feedback_text_list) != 0) and (time.time() - feedback_timer < 0.2):
+        Ping = 1
+        right_y_text_coordinate = 240
+        left_y_text_coordinate = 240
+        
+        #cv2.putText(frame, "R feedback:", (50, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+        #cv2.putText(frame, "L feedback:", (300, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
         
         for right_feedback_line in right_feedback_text_list:
             cv2.putText(frame, right_feedback_line, (50, right_y_text_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
@@ -125,20 +157,18 @@ def multi_message_display(frame):
         for left_feedback_line in left_feedback_text_list:
             cv2.putText(frame, left_feedback_line, (300, left_y_text_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
             left_y_text_coordinate += 30
-
-    else:
+            
         right_feedback_text_list.clear()
         left_feedback_text_list.clear()
-        
+    
 # rep counting function. counts reps and sets stages
 def rep_counter(right_angle, left_angle):
-    global right_reps, right_stage, left_reps, left_stage, right_good_rep, left_good_rep, good_rep, bad_rep, Ping    
+    global right_reps, right_stage, left_reps, left_stage, right_good_rep, left_good_rep, good_rep, bad_rep  
     if right_angle > 150:
         right_stage = "down"
     elif right_angle < 50 and right_stage == "down":
         right_stage = "up"
         right_reps += 1
-        Ping = 1
         right_feedback = good_rep if right_good_rep else bad_rep
         set_feedback_text("right", right_feedback)
         right_good_rep = True
@@ -149,7 +179,6 @@ def rep_counter(right_angle, left_angle):
     elif left_angle < 50 and left_stage == "down":
         left_stage = "up"
         left_reps += 1
-        Ping = 1
         left_feedback = good_rep if left_good_rep else bad_rep
         set_feedback_text("left", left_feedback)
         left_good_rep = True
@@ -336,8 +365,10 @@ while cap.isOpened():
         cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
         start = time.time()
     # rep count display text
-    cv2.putText(frame, f"Right Reps: {right_reps}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(frame, f"Left Reps: {left_reps}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(frame, f"Right Reps: {right_reps}", (50, 100), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2)
+    cv2.putText(frame, f"Left Reps: {left_reps}", (300, 100), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2)
+    cv2.putText(frame, "R feedback:", (50, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(frame, "L feedback:", (300, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
 
     # display "Will start recording once full body is in frame" during recording phase ONLY
     # if not body_in_frame:
@@ -356,7 +387,7 @@ while cap.isOpened():
         Ping = 0
     else:
         None
-
+        
     if time.time() - start >= 5:
         quit = True
 
