@@ -95,6 +95,7 @@ def set_feedback_text(side, feedback):
 def multi_message_display(frame):
     global right_feedback_text_list, left_feedback_text_list, good_rep, bad_rep, partial_rep, feedback_timer, Ping, right_good_rep, left_good_rep
     global right_completion_feedback_text, left_completion_feedback_text, right_completion_feedback_timer, left_completion_feedback_timer
+    global right_partial_rep_flag, left_partial_rep_flag
     
     if (len(right_feedback_text_list) != 0 or len(left_feedback_text_list) != 0 or 
         right_completion_feedback_text != "" or left_completion_feedback_text != "") and (time.time() - feedback_timer < 2):
@@ -119,6 +120,9 @@ def multi_message_display(frame):
             right_completion_feedback_text = partial_rep
             right_completion_feedback_timer = time.time()
             right_feedback_text_list.remove(partial_rep)
+            # Needs to be set in this loop so that a good rep isn't counted as bad rep after a partial rep.
+            # Ideal solution: merge partial rep logic w/ rep_counter() function
+            right_good_rep = True; 
         if bad_rep in right_feedback_text_list:
             print(right_feedback_text_list)
             right_completion_feedback_text = bad_rep
@@ -133,6 +137,8 @@ def multi_message_display(frame):
             left_completion_feedback_text = partial_rep
             left_completion_feedback_timer = time.time()
             left_feedback_text_list.remove(partial_rep)
+            left_good_rep = True
+            #left_partial_rep_flag = False
         if bad_rep in left_feedback_text_list:
             left_completion_feedback_text = bad_rep
             left_completion_feedback_timer = time.time()
