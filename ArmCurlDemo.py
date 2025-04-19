@@ -138,7 +138,6 @@ def multi_message_display(frame):
             left_completion_feedback_timer = time.time()
             left_feedback_text_list.remove(partial_rep)
             left_good_rep = True
-            #left_partial_rep_flag = False
         if bad_rep in left_feedback_text_list:
             left_completion_feedback_text = bad_rep
             left_completion_feedback_timer = time.time()
@@ -174,7 +173,8 @@ def rep_counter(right_angle, left_angle):
         right_stage = "down"
     elif right_angle < 50 and right_stage == "down":
         right_stage = "up"
-        right_reps += 1
+        if right_good_rep:
+            right_reps += 1
         right_feedback = good_rep if right_good_rep else bad_rep
         set_feedback_text("right", right_feedback)
         right_good_rep = True
@@ -184,7 +184,8 @@ def rep_counter(right_angle, left_angle):
        left_stage = "down"
     elif left_angle < 50 and left_stage == "down":
         left_stage = "up"
-        left_reps += 1
+        if left_good_rep:
+            left_reps += 1
         left_feedback = good_rep if left_good_rep else bad_rep
         set_feedback_text("left", left_feedback)
         left_good_rep = True
