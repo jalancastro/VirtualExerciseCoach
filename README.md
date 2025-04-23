@@ -8,3 +8,6 @@ Features:
 - Classifies form as “Good” or “Needs Improvement” with feedback, using angle calculation
 
 - Easy to extend for other exercises
+
+
+Built by Nick Anderson, Alan Castro, and Marcos Toxqui Valencia for our CSE 485 Class at ASU.
