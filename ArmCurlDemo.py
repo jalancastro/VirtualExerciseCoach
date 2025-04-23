@@ -1,12 +1,8 @@
-from operator import truediv
-
 import cv2
 import mediapipe as mp
 import numpy as np
 import time
-import threading as tr
-import concurrent.futures as cf
-from concurrent.futures import ThreadPoolExecutor as TPE
+
 # mediapipe pose initialization
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
@@ -17,14 +13,32 @@ right_reps = 0
 left_reps = 0
 right_stage = None  # down or up
 left_stage = None   # down or up
-feedback_timer = 0
-feedback_text = ""
-detector = 0
-Switch = 0
+detector = 0 # used during error playback?
+Switch = 0 # not used?
 quit = False
-Ping = 0
-entered = 0
+Ping = 0 # Each error message sets it to 1. When it is set to 1, the variable "start" is updated with the current time
+         # if "start" isnt updated in 5 seconds, the feedback recording stops
+entered = 0 # used during error playback?
 
+# feedback variables
+feedback_timer = 0
+right_completion_feedback_timer = 0 # keeps track of how long the latest rep completion message has been on screen
+left_completion_feedback_timer = 0
+feedback_text = ""
+right_completion_feedback_text = "" # used for good, partial, and bad reps, which have different time outs
+left_completion_feedback_text = ""
+right_feedback_text_list = []
+left_feedback_text_list = []
+elbow_swing = "Elbow swinging"
+shoulder_swing = "Shoulder swing"
+partial_rep = "Partial rep"
+good_rep = "Good rep completed"
+bad_rep = "Bad rep completed"
+hip_far_out = "Hip too far out"
+
+# good rep flag
+right_good_rep = True
+left_good_rep = True
 
 # adjustable elbow swing threshold
 ELBOW_SWING_THRESHOLD = 70  # ADJUST HIGHER IF TOO SENSITIVE
@@ -59,36 +73,122 @@ def is_body_in_frame(landmarks):
     return all(landmarks[l].visibility > 0.7 for l in required_landmarks)  # Only if visible for 0.7+
 POSE_CONNECTIONS = frozenset([(12,14),(14,16),(11,13),(13,15)])
 
-def set_feedback_text(feedback):
-    global feedback_text
-    if feedback_text != "" and feedback != "":
-        feedback_text += "\n"
-    feedback_text += feedback
+# keeps tracks of all the feedback messages encountered during a repetition
+def set_feedback_text(side, feedback):
+    global right_feedback_text_list, left_feedback_text_list, right_good_rep, left_good_rep, good_rep, feedback_timer, detector    
+    feedback_timer = time.time()  
+    detector = 1
+    
+    # if feedback other than good rep is detected (errors), the good rep flag is set to false
+    if feedback != good_rep and side == "right":
+        right_good_rep = False        
+    if feedback != good_rep and side == "left":
+        left_good_rep = False  
+        
+    # the following statements add feedback to the list for each arm   
+    if side == "right" and feedback not in right_feedback_text_list:
+        right_feedback_text_list.append(feedback)
+    elif side == "left" and feedback not in left_feedback_text_list:
+        left_feedback_text_list.append(feedback)
 
+# function that displays multiple messages on consecutive new lines
+def multi_message_display(frame):
+    global right_feedback_text_list, left_feedback_text_list, good_rep, bad_rep, partial_rep, feedback_timer, Ping, right_good_rep, left_good_rep
+    global right_completion_feedback_text, left_completion_feedback_text, right_completion_feedback_timer, left_completion_feedback_timer
+    global right_partial_rep_flag, left_partial_rep_flag
+    
+    if (len(right_feedback_text_list) != 0 or len(left_feedback_text_list) != 0 or 
+        right_completion_feedback_text != "" or left_completion_feedback_text != "") and (time.time() - feedback_timer < 2):
+        
+        Ping = 1
+        right_y_text_event_coordinate = 210
+        left_y_text_event_coordinate = 210
+        
+        if (time.time() - right_completion_feedback_timer > 1):
+            right_completion_feedback_text = ""
+        
+        if (time.time() - left_completion_feedback_timer > 1):
+            left_completion_feedback_text = ""
+            
+        # If "Good rep completed" is in the feedback list, it is displayed exclusively
+        # If bad rep and partial reps are detected, bad rep feedback is prioritized
+        if good_rep in right_feedback_text_list:
+            right_completion_feedback_text = good_rep
+            right_completion_feedback_timer = time.time()
+            right_feedback_text_list = []
+        if partial_rep in right_feedback_text_list:
+            right_completion_feedback_text = partial_rep
+            right_completion_feedback_timer = time.time()
+            right_feedback_text_list.remove(partial_rep)
+            # Needs to be set in this loop so that a good rep isn't counted as bad rep after a partial rep.
+            # Ideal solution: merge partial rep logic w/ rep_counter() function
+            right_good_rep = True; 
+        if bad_rep in right_feedback_text_list:
+            print(right_feedback_text_list)
+            right_completion_feedback_text = bad_rep
+            right_completion_feedback_timer = time.time()
+            right_feedback_text_list.remove(bad_rep)    
+            
+        if good_rep in left_feedback_text_list:
+            left_completion_feedback_text = good_rep
+            left_completion_feedback_timer = time.time()
+            left_feedback_text_list = []
+        if partial_rep in left_feedback_text_list:
+            left_completion_feedback_text = partial_rep
+            left_completion_feedback_timer = time.time()
+            left_feedback_text_list.remove(partial_rep)
+            left_good_rep = True
+        if bad_rep in left_feedback_text_list:
+            left_completion_feedback_text = bad_rep
+            left_completion_feedback_timer = time.time()
+            left_feedback_text_list.remove(bad_rep)
+               
+        cv2.putText(frame, right_completion_feedback_text, (50, right_y_text_event_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+        cv2.putText(frame, left_completion_feedback_text, (300, left_y_text_event_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+            
+            
+    if (len(right_feedback_text_list) != 0 or len(left_feedback_text_list) != 0) and (time.time() - feedback_timer < 0.2):
+        Ping = 1
+        right_y_text_coordinate = 240
+        left_y_text_coordinate = 240
+        
+        #cv2.putText(frame, "R feedback:", (50, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+        #cv2.putText(frame, "L feedback:", (300, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+        
+        for right_feedback_line in right_feedback_text_list:
+            cv2.putText(frame, right_feedback_line, (50, right_y_text_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+            right_y_text_coordinate += 30
+
+        for left_feedback_line in left_feedback_text_list:
+            cv2.putText(frame, left_feedback_line, (300, left_y_text_coordinate), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+            left_y_text_coordinate += 30
+            
+        right_feedback_text_list.clear()
+        left_feedback_text_list.clear()
+    
 # rep counting function. counts reps and sets stages
 def rep_counter(right_angle, left_angle):
-    global feedback_timer, feedback_text, right_reps, right_stage, left_reps, left_stage
+    global right_reps, right_stage, left_reps, left_stage, right_good_rep, left_good_rep, good_rep, bad_rep  
     if right_angle > 150:
         right_stage = "down"
     elif right_angle < 50 and right_stage == "down":
         right_stage = "up"
-        right_reps += 1
-        global Ping
-        Ping = 1
-        #set_feedback_text("Good rep - Right arm")
-        feedback_text = "Good rep - Right arm"
-        feedback_timer = time.time()
+        if right_good_rep:
+            right_reps += 1
+        right_feedback = good_rep if right_good_rep else bad_rep
+        set_feedback_text("right", right_feedback)
+        right_good_rep = True
 
     # left arm rep counting
     if left_angle > 150:
        left_stage = "down"
     elif left_angle < 50 and left_stage == "down":
         left_stage = "up"
-        left_reps += 1
-        Ping = 1
-        #set_feedback_text("Good rep - Left arm")
-        feedback_text = "Good rep - Left arm"
-        feedback_timer = time.time()    
+        if left_good_rep:
+            left_reps += 1
+        left_feedback = good_rep if left_good_rep else bad_rep
+        set_feedback_text("left", left_feedback)
+        left_good_rep = True
 
 # sets the partial rep flags if a certain angle was reached during contraction
 # if a rep was completed successfully by setting the stage to "up", it clears the flag
@@ -105,72 +205,49 @@ def set_partial_rep_flag(right_angle, left_angle, right_stage, left_stage):
 # uses flags to determine if an angle of 160 or less was reached, but 50 degrees wasn't reached(full rep). 
 # If so, when the rep is completed and the arm extended beyond 170 degrees, it sets the feedback text.
 def set_partial_rep_feedback(right_angle, left_angle):
-    global right_partial_rep_flag, left_partial_rep_flag, feedback_text, feedback_timer
+    global right_partial_rep_flag, left_partial_rep_flag, partial_rep
     if right_angle > REP_COMPLETION_TRESHOLD and right_partial_rep_flag:
         right_partial_rep_flag = False
-        #set_feedback_text("Partial rep - Right arm")
-        feedback_text = "Partial rep - Right arm"
-        feedback_timer = time.time()
+        set_feedback_text("right", partial_rep)
     if left_angle > REP_COMPLETION_TRESHOLD and left_partial_rep_flag:
-        print("left_partial_rep_flag: ", left_partial_rep_flag)
         left_partial_rep_flag = False
-        #set_feedback_text("Partial rep - Left arm")
-        feedback_text = "Partial rep - Left arm"
-        feedback_timer = time.time()
+        set_feedback_text("left", partial_rep)
 
 # function to detect elbow swings depending on wrist and elbow positions
 def set_elbow_swing_feedback(right_arm_position, left_arm_position, body_in_frame):
-    global ELBOW_SWING_THRESHOLD, feedback_text, feedback_timer, detector    
+    global ELBOW_SWING_THRESHOLD, elbow_swing    
     # elbow swing detection with adjusted threshold
     right_elbow_swing = right_arm_position > ELBOW_SWING_THRESHOLD
     left_elbow_swing = left_arm_position > ELBOW_SWING_THRESHOLD
     
     if right_elbow_swing and body_in_frame:
-        #set_feedback_text("Right elbow swinging too much!")
-        feedback_text = "Right elbow swinging too much!"
-        feedback_timer = time.time()
-        detector = 1
+        set_feedback_text("right", elbow_swing)
     if left_elbow_swing and body_in_frame:
-        #set_feedback_text("Left elbow swinging too much!")
-        feedback_text = "Left elbow swinging too much!"
-        feedback_timer = time.time()
-        detector = 1
+        set_feedback_text("left", elbow_swing)
         
 # function to detect shoulder swings depending on shoulder positions
 def set_shoulder_swing_feedback(right_shoulder_position, left_shoulder_position, body_in_frame):
-    global ELBOW_SWING_THRESHOLD, feedback_text, feedback_timer, detector    
+    global SHOULDER_SWING_THRESHOLD, shoulder_swing    
     # shoulder swing detection with threshold
     right_shoulder_swing = right_shoulder_position > SHOULDER_SWING_THRESHOLD
     left_shoulder_swing = left_shoulder_position > SHOULDER_SWING_THRESHOLD
     
     if right_shoulder_swing and body_in_frame:
-        #set_feedback_text("You are swinging your right shoulder, don't use momentum!")
-        feedback_text = "You are swinging your right shoulder, don't use momentum!"
-        feedback_timer = time.time()
-        detector = 1
+        set_feedback_text("right", shoulder_swing)
     if left_shoulder_swing and body_in_frame:
-        #set_feedback_text("You are swinging your left shoulder, don't use momentum!")
-        feedback_text = "You are swinging your left shoulder, don't use momentum!"
-        feedback_timer = time.time()
-        detector = 1
+        set_feedback_text("left", shoulder_swing)
 
 # function to detect hip position error depending on each hip
 def set_hip_position_feedback(right_hip_position, left_hip_position, body_in_frame):
-    global ELBOW_SWING_THRESHOLD, feedback_text, feedback_timer, detector    
+    global HIP_RANGE_THRESHOLD, hip_far_out    
     # shoulder swing detection with threshold
     right_hip_swing = right_hip_position > HIP_RANGE_THRESHOLD
     left_hip_swing = left_hip_position > HIP_RANGE_THRESHOLD
     
     if right_hip_swing and body_in_frame:
-        #set_feedback_text("Right hip too far out")
-        feedback_text = "Right hip too far out"
-        feedback_timer = time.time()
-        detector = 1
+        set_feedback_text("right", hip_far_out)
     if left_hip_swing and body_in_frame:
-        #set_feedback_text("Left hip too far out")
-        feedback_text = "Left hip too far out"
-        feedback_timer = time.time()
-        detector = 1
+        set_feedback_text("left", hip_far_out)
 
 start = time.time()
 while cap.isOpened():
@@ -183,7 +260,6 @@ while cap.isOpened():
 
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = pose.process(frame_rgb)
-
 
     h, w, _ = frame.shape
     detector = 0
@@ -276,11 +352,10 @@ while cap.isOpened():
             
             # IF hip swing AND body is in frame
             set_hip_position_feedback(r_hip[1] - l_hip[1], l_hip[1] - r_hip[1], body_in_frame)
-
-            if feedback_text and (time.time() - feedback_timer < 2):
-                cv2.putText(frame, feedback_text, (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-            else:
-                feedback_text = ""
+            
+            # Multi message display
+            multi_message_display(frame)
+                
             if detector == 1:
                 for i in range(2):
                     out.write(frame)
@@ -297,9 +372,10 @@ while cap.isOpened():
         cv2.putText(frame, "Will start recording once full body is in frame", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
         start = time.time()
     # rep count display text
-    cv2.putText(frame, f"Right Reps: {right_reps}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    cv2.putText(frame, f"Left Reps: {left_reps}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
+    cv2.putText(frame, f"Right Reps: {right_reps}", (50, 100), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2)
+    cv2.putText(frame, f"Left Reps: {left_reps}", (300, 100), cv2.FONT_HERSHEY_DUPLEX, 1, (0, 0, 255), 2)
+    cv2.putText(frame, "R feedback:", (50, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(frame, "L feedback:", (300, 180), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 2)
 
     # display "Will start recording once full body is in frame" during recording phase ONLY
     # if not body_in_frame:
@@ -318,7 +394,7 @@ while cap.isOpened():
         Ping = 0
     else:
         None
-
+        
     if time.time() - start >= 5:
         quit = True
 
